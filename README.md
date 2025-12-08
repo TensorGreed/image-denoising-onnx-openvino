@@ -55,4 +55,8 @@ Minimal setup to train a face denoiser with a HIP-based noise op (tuned for MI30
 
 ## Notes for OAK-D
 - OAK-D cannot run HIP; keep the noise op in training only. Exported ONNX/IR should be static input shape (B×3×112×112).
-- Use the generated blob with DepthAI pipelines; match `--openvino-version` to device firmware expectations.
+- Steps to run on OAK-D:
+  1) Export blob: `python export_to_openvino.py --ckpt ./outputs_face/best.pt --output-dir ./exported --export-blob --blob-shaves 6 --openvino-version 2022.1.0`
+  2) In your DepthAI script, load the blob: `nn.setBlobPath("exported/oakd/face_denoiser.blob")` and feed `3x112x112` RGB inputs.
+  3) Keep preprocessing consistent with training (resize to 112x112, normalize to [0,1]).
+- Match `--openvino-version` to your DepthAI firmware; regenerate the blob if versions differ.
