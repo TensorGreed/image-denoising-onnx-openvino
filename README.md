@@ -60,3 +60,25 @@ Minimal setup to train a face denoiser with a HIP-based noise op (tuned for MI30
   2) In your DepthAI script, load the blob: `nn.setBlobPath("exported/oakd/face_denoiser.blob")` and feed `3x112x112` RGB inputs.
   3) Keep preprocessing consistent with training (resize to 112x112, normalize to [0,1]).
 - Match `--openvino-version` to your DepthAI firmware; regenerate the blob if versions differ.
+
+## Simple OAK-D UI (capture → label → identify)
+- File: `oakd_face_label_app.py`
+- What it does: captures RGB frames from OAK-D, lets you label images (e.g., “John Doe”), and identifies a query image by comparing FaceNet embeddings to labeled gallery.
+- Install extras:
+  ```bash
+  pip install gradio facenet-pytorch depthai opencv-python torchvision torch --index-url https://download.pytorch.org/whl/rocm6.1
+  ```
+  (Adjust the torch index-url as needed for your ROCm/CUDA setup.)
+- Run on a host with the OAK-D connected over USB:
+  ```bash
+  python oakd_face_label_app.py --capture-dir ./oakd_captures --device cpu
+  ```
+  Then open the printed URL (default http://0.0.0.0:7860) to:
+  1) Capture images from OAK-D.
+  2) Select multiple captures and assign a label.
+  3) Upload/choose a query image and get the predicted label (cosine similarity over FaceNet embeddings).
+  Use `--device cuda` if you want embeddings on GPU. If headless, port-forward (e.g., `ssh -L 7860:localhost:7860 user@host`) and open http://localhost:7860.
+
+Notes:
+- Embedding runs on host (CPU/GPU); not on the OAK-D VPU. You can swap FaceNet for an OpenVINO face-recognition model if desired.
+- Labeled images and labels JSON are stored under `./oakd_captures` by default.
