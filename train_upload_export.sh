@@ -11,18 +11,19 @@ set -euo pipefail
 OUTPUT_DIR="${OUTPUT_DIR:-./outputs_face}"
 DATA_DIR="${DATA_DIR:-./data_lfw}"
 EXPORT_DIR="${EXPORT_DIR:-./exported}"
-BATCH_SIZE="${BATCH_SIZE:-32}"
+BATCH_SIZE="${BATCH_SIZE:-16}"
 EPOCHS="${EPOCHS:-5}"
 LR="${LR:-1e-4}"
 NOISE_STD="${NOISE_STD:-0.1}"
 NUM_WORKERS="${NUM_WORKERS:-4}"
-LATENT_DIM="${LATENT_DIM:-512}"
+LATENT_DIM="${LATENT_DIM:-256}"
 LAMBDA_ID="${LAMBDA_ID:-0.1}"
 EXPORT_OPSET="${EXPORT_OPSET:-17}"
 EXPORT_DEVICE="${EXPORT_DEVICE:-cpu}"      # use "cuda" if you have ROCm/CUDA available
 EXPORT_BLOB="${EXPORT_BLOB:-false}"        # set to "true" to also build OAK-D blob
 BLOB_SHAVES="${BLOB_SHAVES:-6}"
 OPENVINO_VERSION="${OPENVINO_VERSION:-2022.1.0}"
+IMAGE_SIZE="${IMAGE_SIZE:-96}"
 
 # -----------------------------
 # Checks
@@ -43,6 +44,7 @@ echo "[1/3] Training FaceDenoiser -> ${OUTPUT_DIR}"
 python train_face_denoiser.py \
   --data-dir "${DATA_DIR}" \
   --output-dir "${OUTPUT_DIR}" \
+  --image-size "${IMAGE_SIZE}" \
   --batch-size "${BATCH_SIZE}" \
   --epochs "${EPOCHS}" \
   --lr "${LR}" \
@@ -74,6 +76,7 @@ echo "[3/3] Exporting to ONNX/OpenVINO at ${EXPORT_DIR}"
 EXPORT_ARGS=(
   --ckpt "${LATEST_CKPT}"
   --output-dir "${EXPORT_DIR}"
+  --image-size "${IMAGE_SIZE}"
   --opset "${EXPORT_OPSET}"
   --device "${EXPORT_DEVICE}"
 )

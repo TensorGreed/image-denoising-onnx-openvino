@@ -17,29 +17,31 @@ from facenet_pytorch import InceptionResnetV1
 
 # ---------------------------
 # Face Denoising Autoencoder + Latent MLP
-# Input: [B,3,112,112] RGB faces
+# OAK-D friendly: smaller channels/resolution defaults (96x96), lightweight decoder.
 # ---------------------------
 
 class FaceDenoiser(nn.Module):
-    def __init__(self, latent_dim: int = 512):
+    def __init__(self, latent_dim: int = 256, image_size: int = 96):
         super().__init__()
+        if image_size % 16 != 0:
+            raise ValueError("image_size must be divisible by 16 for the current encoder/decoder strides.")
 
-        # Encoder: fairly standard conv stack
+        # Encoder: slimmed conv stack
         self.encoder = nn.Sequential(
-            nn.Conv2d(3, 32, kernel_size=3, stride=2, padding=1),   # [B,32,56,56]
+            nn.Conv2d(3, 24, kernel_size=3, stride=2, padding=1),   # [B,24,H/2,W/2]
             nn.ReLU(inplace=True),
-            nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1),  # [B,64,28,28]
+            nn.Conv2d(24, 48, kernel_size=3, stride=2, padding=1),  # [B,48,H/4,W/4]
             nn.ReLU(inplace=True),
-            nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1), # [B,128,14,14]
+            nn.Conv2d(48, 96, kernel_size=3, stride=2, padding=1),  # [B,96,H/8,W/8]
             nn.ReLU(inplace=True),
-            nn.Conv2d(128, 256, kernel_size=3, stride=2, padding=1),# [B,256,7,7]
+            nn.Conv2d(96, 128, kernel_size=3, stride=2, padding=1), # [B,128,H/16,W/16]
             nn.ReLU(inplace=True),
         )
 
         # Feature size after encoder
-        self.enc_feat_c = 256
-        self.enc_feat_h = 7
-        self.enc_feat_w = 7
+        self.enc_feat_c = 128
+        self.enc_feat_h = image_size // 16
+        self.enc_feat_w = image_size // 16
         enc_feat_dim = self.enc_feat_c * self.enc_feat_h * self.enc_feat_w
 
         # Latent bottleneck MLP (this is where hip_linear could be used in inference)
@@ -50,26 +52,26 @@ class FaceDenoiser(nn.Module):
         # Decoder: mirror-ish upsampling
         self.decoder = nn.Sequential(
             nn.ConvTranspose2d(
-                256, 128, kernel_size=3, stride=2,
+                128, 96, kernel_size=3, stride=2,
                 padding=1, output_padding=1
-            ),  # [B,128,14,14]
+            ),  # [B,96,H/8,W/8]
             nn.ReLU(inplace=True),
             nn.ConvTranspose2d(
-                128, 64, kernel_size=3, stride=2,
+                96, 48, kernel_size=3, stride=2,
                 padding=1, output_padding=1
-            ),  # [B,64,28,28]
+            ),  # [B,48,H/4,W/4]
             nn.ReLU(inplace=True),
             nn.ConvTranspose2d(
-                64, 32, kernel_size=3, stride=2,
+                48, 24, kernel_size=3, stride=2,
                 padding=1, output_padding=1
-            ),  # [B,32,56,56]
+            ),  # [B,24,H/2,W/2]
             nn.ReLU(inplace=True),
             nn.ConvTranspose2d(
-                32, 16, kernel_size=3, stride=2,
+                24, 16, kernel_size=3, stride=2,
                 padding=1, output_padding=1
-            ),  # [B,16,112,112]
+            ),  # [B,16,H,W]
             nn.ReLU(inplace=True),
-            nn.Conv2d(16, 3, kernel_size=3, padding=1),  # [B,3,112,112]
+            nn.Conv2d(16, 3, kernel_size=3, padding=1),  # [B,3,H,W]
             nn.Sigmoid(),  # outputs in [0,1]
         )
 
@@ -79,7 +81,7 @@ class FaceDenoiser(nn.Module):
         z_latent = self.fc_enc(z_flat)
         z_recon = self.fc_dec(z_latent)
         z_recon = z_recon.view(-1, self.enc_feat_c, self.enc_feat_h, self.enc_feat_w)
-        out = self.decoder(z_recon)  # [B,3,112,112]
+        out = self.decoder(z_recon)  # [B,3,H,W]
         return out
 
 
@@ -87,11 +89,8 @@ class FaceDenoiser(nn.Module):
 # Datasets: LFW faces with on-the-fly noise
 # ---------------------------
 
-def get_lfw_dataloaders(data_dir, batch_size, num_workers, image_size=112, noise_std=0.1):
-    """
-    Returns train and val dataloaders for LFWPeople.
-    We keep images as RGB and resize to 112x112 to match FaceNet's default.
-    """
+def get_lfw_dataloaders(data_dir, batch_size, num_workers, image_size=96, noise_std=0.1):
+    """Returns train and val dataloaders for LFWPeople, resized to `image_size`."""
 
     transform_clean = transforms.Compose([
         transforms.Resize((image_size, image_size)),
@@ -161,7 +160,7 @@ def compute_identity_loss(facenet, clean, denoised):
     Compute identity loss between clean and denoised faces
     using FaceNet embeddings (L2 distance).
     Inputs:
-        clean, denoised: [B,3,112,112] float in [0,1]
+        clean, denoised: [B,3,H,W] float in [0,1]
     """
     with torch.no_grad():
         emb_clean = facenet(clean)       # [B,512]
@@ -178,7 +177,7 @@ def train_epoch(model, facenet, loader, optimizer, device, noise_std, lambda_id)
     pixel_criterion = nn.MSELoss()
 
     for clean, _ in loader:
-        clean = clean.to(device, non_blocking=True)  # [B,3,112,112]
+        clean = clean.to(device, non_blocking=True)  # [B,3,H,W]
 
         # Add noise with HIP kernel (same pattern as before)
         noisy = hip_addnoise.add_noise(clean, noise_std=noise_std)
@@ -235,16 +234,18 @@ def parse_args():
 
     p.add_argument("--data-dir", type=str, default="./data_lfw",
                    help="Where LFW will be downloaded")
-    p.add_argument("--batch-size", type=int, default=32)
+    p.add_argument("--batch-size", type=int, default=16)
     p.add_argument("--epochs", type=int, default=5)
     p.add_argument("--lr", type=float, default=1e-4)
     p.add_argument("--noise-std", type=float, default=0.1,
                    help="Std dev of Gaussian noise added by HIP kernel")
     p.add_argument("--num-workers", type=int, default=4)
     p.add_argument("--output-dir", type=str, default="./outputs_face")
-    p.add_argument("--latent-dim", type=int, default=512)
+    p.add_argument("--latent-dim", type=int, default=256)
     p.add_argument("--lambda-id", type=float, default=0.1,
                    help="Weight for identity loss vs pixel loss")
+    p.add_argument("--image-size", type=int, default=96,
+                   help="Input resolution H=W for training/export")
 
     return p.parse_args()
 
@@ -264,11 +265,11 @@ def main():
     # Data
     train_loader, val_loader = get_lfw_dataloaders(
         args.data_dir, args.batch_size, args.num_workers,
-        image_size=112, noise_std=args.noise-std  # noise_std passed to train/eval, not here
+        image_size=args.image_size, noise_std=args.noise_std  # noise_std passed to train/eval, not here
     )
 
     # Models
-    model = FaceDenoiser(latent_dim=args.latent_dim).to(device)
+    model = FaceDenoiser(latent_dim=args.latent_dim, image_size=args.image_size).to(device)
     facenet = build_facenet(device)
 
     print("Denoiser params:",

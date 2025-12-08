@@ -91,7 +91,7 @@ def parse_args():
     p.add_argument("--ckpt", type=str, required=True, help="Path to .pt checkpoint")
     p.add_argument("--output-dir", type=str, default="./exported",
                    help="Base directory for exports")
-    p.add_argument("--image-size", type=int, default=112,
+    p.add_argument("--image-size", type=int, default=96,
                    help="Input H=W resolution expected by the model")
     p.add_argument("--batch-size", type=int, default=1,
                    help="Batch size for export (static)")

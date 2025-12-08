@@ -1,12 +1,12 @@
 # image-denoising-onnx-openvino
 
-Minimal setup to train a face denoiser with a HIP-based noise op (tuned for MI300X), then export the trained model to ONNX → OpenVINO IR → optional OAK-D blob, and publish checkpoints to Hugging Face.
+Minimal setup to train a face denoiser with a HIP-based noise op (tuned for MI300X), then export the trained model to ONNX -> OpenVINO IR -> optional OAK-D blob, and publish checkpoints to Hugging Face.
 
 ## Components
 - `hip_addnoise/`: HIP extension to add Gaussian noise on ROCm (supports fp32/fp16/bf16).
 - `train_face_denoiser.py`: trains a FaceDenoiser autoencoder with identity loss (FaceNet) on LFW; uses HIP noise augmentation.
 - `export_to_openvino.py`: loads a checkpoint, exports ONNX, converts to OpenVINO IR (FP16), optionally builds an OAK-D blob via `blobconverter`.
-- `train_upload_export.sh`: one-shot script to train → upload to Hugging Face → export ONNX/IR/(blob).
+- `train_upload_export.sh`: one-shot script to train -> upload to Hugging Face -> export ONNX/IR/(blob).
 
 ## Quickstart
 1) Install deps (examples):
@@ -23,13 +23,14 @@ Minimal setup to train a face denoiser with a HIP-based noise op (tuned for MI30
    ```
    Ensure ROCm/CUDA stack is installed for MI300X; for OAK-D export, OpenVINO and `blobconverter` must be present.
 
-2) Train:
+2) Train (OAK-D-friendly defaults: 96x96 input, slim model):
    ```bash
    python train_face_denoiser.py \
      --data-dir ./data_lfw \
      --output-dir ./outputs_face \
-     --batch-size 32 --epochs 5 --lr 1e-4 \
-     --noise-std 0.1 --num-workers 4 --latent-dim 512 --lambda-id 0.1
+     --image-size 96 \
+     --batch-size 16 --epochs 5 --lr 1e-4 \
+     --noise-std 0.1 --num-workers 4 --latent-dim 256 --lambda-id 0.1
    ```
 
 3) Export (ONNX + IR, optional blob):
@@ -37,13 +38,15 @@ Minimal setup to train a face denoiser with a HIP-based noise op (tuned for MI30
    python export_to_openvino.py \
      --ckpt ./outputs_face/face_denoiser_best_epochX_vallossY.pt \
      --output-dir ./exported \
+     --image-size 96 \
      --opset 17 --device cpu \
      --export-blob --blob-shaves 6 --openvino-version 2022.1.0
    ```
 
-4) One-shot pipeline (train → HF upload → export):
+4) One-shot pipeline (train -> HF upload -> export):
    ```bash
    HF_TOKEN=your_token HF_REPO=your-username/face-denoiser-mi300x \
+   IMAGE_SIZE=96 \
    EXPORT_BLOB=true BLOB_SHAVES=6 OPENVINO_VERSION=2022.1.0 \
    bash train_upload_export.sh
    ```
@@ -54,14 +57,14 @@ Minimal setup to train a face denoiser with a HIP-based noise op (tuned for MI30
 - Add backward if you plan to train with learnable noise or need autograd through the op.
 
 ## Notes for OAK-D
-- OAK-D cannot run HIP; keep the noise op in training only. Exported ONNX/IR should be static input shape (B×3×112×112).
+- OAK-D cannot run HIP; keep the noise op in training only. Exported ONNX/IR should be static input shape (B×3×H×W), default 96×96 here.
 - Steps to run on OAK-D:
-  1) Export blob: `python export_to_openvino.py --ckpt ./outputs_face/best.pt --output-dir ./exported --export-blob --blob-shaves 6 --openvino-version 2022.1.0`
-  2) In your DepthAI script, load the blob: `nn.setBlobPath("exported/oakd/face_denoiser.blob")` and feed `3x112x112` RGB inputs.
-  3) Keep preprocessing consistent with training (resize to 112x112, normalize to [0,1]).
+  1) Export blob: `python export_to_openvino.py --ckpt ./outputs_face/best.pt --output-dir ./exported --image-size 96 --export-blob --blob-shaves 6 --openvino-version 2022.1.0`
+  2) In your DepthAI script, load the blob: `nn.setBlobPath("exported/oakd/face_denoiser.blob")` and feed `3x96x96` RGB inputs.
+  3) Keep preprocessing consistent with training (resize to 96x96, normalize to [0,1]).
 - Match `--openvino-version` to your DepthAI firmware; regenerate the blob if versions differ.
 
-## Simple OAK-D UI (capture → label → identify)
+## Simple OAK-D UI (capture -> label -> identify)
 - File: `oakd_face_label_app.py`
 - What it does: captures RGB frames from OAK-D, lets you label images (e.g., “John Doe”), and identifies a query image by comparing FaceNet embeddings to labeled gallery.
 - Install extras:
