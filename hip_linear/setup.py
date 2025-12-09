@@ -18,7 +18,14 @@ os.makedirs(shim_bin, exist_ok=True)
 # Create an nvcc shim that forwards to hipcc if it doesn't already exist.
 if not os.path.exists(shim_nvcc) and os.path.exists(hipcc):
     with open(shim_nvcc, "w", encoding="utf-8") as f:
-        f.write("#!/usr/bin/env bash\n\"{}\" \"$@\"\n".format(hipcc))
+        f.write(
+            "#!/usr/bin/env bash\n"
+            "if [[ \"$1\" == \"--version\" ]]; then\n"
+            "  echo \"Cuda compilation tools, release 12.0, V12.0.76\"\n"
+            "  exit 0\n"
+            "fi\n"
+            "\"{}\" \"$@\"\n".format(hipcc)
+        )
     st = os.stat(shim_nvcc)
     os.chmod(shim_nvcc, st.st_mode | stat.S_IEXEC)
 
