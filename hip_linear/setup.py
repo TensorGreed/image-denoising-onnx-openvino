@@ -2,9 +2,8 @@
 import os
 import stat
 from setuptools import setup
-from torch.utils.cpp_extension import BuildExtension, CUDAExtension
 
-# Ensure CUDA_HOME/CUDACXX point to ROCm so torch extension build finds hipcc.
+# --- Set env and shim before importing torch.cpp_extension ---
 rocm_home = os.environ.get("ROCM_HOME", "/opt/rocm")
 hipcc = os.path.join(rocm_home, "bin", "hipcc")
 shim_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "rocm_nvcc_shim"))
@@ -46,14 +45,15 @@ if os.path.exists(rocm_home):
                     pass
             break
 
-# Point CUDA_HOME to the shim so torch's CUDAExtension finds an nvcc executable.
+# Force torch to see the shim as CUDA_HOME and hipcc as NVCC/CUDACXX
 os.environ["CUDA_HOME"] = shim_root
-# Point CUDACXX to hipcc directly.
 if os.path.exists(hipcc):
     os.environ["CUDACXX"] = hipcc
     os.environ["NVCC"] = hipcc
-# Ensure shim bin is on PATH
 os.environ["PATH"] = shim_bin + os.pathsep + os.environ.get("PATH", "")
+
+# Now import torch extension utilities
+from torch.utils.cpp_extension import BuildExtension, CUDAExtension
 
 setup(
     name="hip_linear",
