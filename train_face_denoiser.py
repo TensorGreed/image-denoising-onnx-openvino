@@ -154,6 +154,8 @@ def get_celeba_dataloaders(data_dir, batch_size, num_workers, image_size=96):
         root=data_dir,
         split="train",
         transform=transform_clean,
+        target_type="attr",
+        partition_file="list_eval_partition.csv",
         download=False,
     )
 
@@ -161,6 +163,8 @@ def get_celeba_dataloaders(data_dir, batch_size, num_workers, image_size=96):
         root=data_dir,
         split="valid",
         transform=transform_clean,
+        target_type="attr",
+        partition_file="list_eval_partition.csv",
         download=False,
     )
 
