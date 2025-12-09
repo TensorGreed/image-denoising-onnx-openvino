@@ -21,10 +21,13 @@ Minimal setup to train a face denoiser with a HIP-based noise op (tuned for MI30
    pip install facenet-pytorch openvino blobconverter huggingface_hub
 
    # Local HIP extensions (install from subfolders)
-   # Ensure CUDA_HOME points to ROCm (set to your ROCm path if different)
-   export CUDA_HOME=${CUDA_HOME:-/opt/rocm}
-   python -m pip install -e hip_addnoise
-   python -m pip install -e hip_linear   # optional, for the hipBLAS linear op
+   # Ensure ROCm toolchain is visible
+   export ROCM_HOME=${ROCM_HOME:-/opt/rocm}
+   export CUDA_HOME=${CUDA_HOME:-$ROCM_HOME}
+   export CUDACXX=${CUDACXX:-$ROCM_HOME/bin/hipcc}
+   export PATH="$ROCM_HOME/bin:$PATH"
+   python -m pip install -e hip_addnoise --no-build-isolation
+   python -m pip install -e hip_linear --no-build-isolation  # optional, for the hipBLAS linear op
    ```
    Ensure ROCm stack is installed on MI300X; for OAK-D export, OpenVINO and `blobconverter` must be present.
 
