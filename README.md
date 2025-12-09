@@ -21,6 +21,8 @@ Minimal setup to train a face denoiser with a HIP-based noise op (tuned for MI30
    pip install facenet-pytorch openvino blobconverter huggingface_hub
 
    # Local HIP extensions (install from subfolders)
+   # Ensure CUDA_HOME points to ROCm (set to your ROCm path if different)
+   export CUDA_HOME=${CUDA_HOME:-/opt/rocm}
    python -m pip install -e hip_addnoise
    python -m pip install -e hip_linear   # optional, for the hipBLAS linear op
    ```
