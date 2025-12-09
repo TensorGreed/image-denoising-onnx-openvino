@@ -3,7 +3,7 @@
 Minimal setup to train a face denoiser with a HIP-based noise op (tuned for MI300X), export to ONNX -> OpenVINO IR -> optional OAK-D blob, and publish checkpoints to Hugging Face.
 
 ## Components
-- `hip_addnoise/`: HIP extension to add Gaussian noise on ROCm (supports fp32/fp16/bf16).
+- `hip_addnoise/`: HIP extension to add Gaussian noise on ROCm (fp32).
 - `hip_linear/`: HIP/hipBLAS linear op (optional).
 - `train_face_denoiser.py`: trains a FaceDenoiser autoencoder with identity loss (FaceNet) on LFW; uses HIP noise augmentation.
 - `export_to_openvino.py`: loads a checkpoint, exports ONNX, converts to OpenVINO IR (FP16), optionally builds an OAK-D blob via `blobconverter`.
@@ -63,7 +63,7 @@ Minimal setup to train a face denoiser with a HIP-based noise op (tuned for MI30
    Requires `huggingface-cli` in PATH; uploads latest checkpoint to `HF_REPO` under `checkpoints/`.
 
 ## Notes for MI300X
-- HIP noise kernel supports fp32/fp16/bf16 and uses 512 threads/block; adjust if benchmarking suggests otherwise.
+- HIP noise kernel supports fp32 and uses 512 threads/block; adjust if benchmarking suggests otherwise.
 - Add backward if you plan to train with learnable noise or need autograd through the op.
 
 ## Notes for OAK-D

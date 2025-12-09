@@ -1,7 +1,6 @@
 // hip_addnoise/add_noise_hip.cu
 #include <torch/extension.h>
 #include <ATen/cuda/CUDAContext.h>
-#include <ATen/Dispatch.h>
 #include <hip/hip_runtime.h>
 #include <limits>
 
@@ -30,13 +29,10 @@ torch::Tensor add_noise_forward(
 ) {
     TORCH_CHECK(clean.is_cuda(), "clean tensor must be on CUDA/ROCm device");
     TORCH_CHECK(noise.is_cuda(), "noise tensor must be on CUDA/ROCm device");
-    TORCH_CHECK(
-        clean.scalar_type() == torch::kFloat ||
-            clean.scalar_type() == torch::kBFloat16 ||
-            clean.scalar_type() == torch::kHalf,
-        "clean tensor must be float32, bfloat16, or float16");
-    TORCH_CHECK(clean.scalar_type() == noise.scalar_type(),
-                "clean and noise must have the same dtype");
+    TORCH_CHECK(clean.scalar_type() == torch::kFloat,
+                "clean tensor must be float32");
+    TORCH_CHECK(noise.scalar_type() == torch::kFloat,
+                "noise tensor must be float32");
     TORCH_CHECK(clean.device() == noise.device(),
                 "clean and noise must be on the same device");
     TORCH_CHECK(clean.sizes() == noise.sizes(),
@@ -61,21 +57,19 @@ torch::Tensor add_noise_forward(
     const uint32_t blocks = static_cast<uint32_t>(blocks_64);
 
     hipStream_t stream = at::cuda::getCurrentCUDAStream();
-    AT_DISPATCH_FLOATING_TYPES_AND2(
-        at::Half, at::BFloat16, clean.scalar_type(), "add_noise_forward", [&] {
-            scalar_t noise_std = static_cast<scalar_t>(noise_std_double);
-            hipLaunchKernelGGL(
-                add_noise_kernel<scalar_t>,
-                dim3(blocks),
-                dim3(threads),
-                0,
-                stream,
-                clean.data_ptr<scalar_t>(),
-                noise.data_ptr<scalar_t>(),
-                noise_std,
-                out.data_ptr<scalar_t>(),
-                numel);
-        });
+
+    float noise_std = static_cast<float>(noise_std_double);
+    hipLaunchKernelGGL(
+        add_noise_kernel<float>,
+        dim3(blocks),
+        dim3(threads),
+        0,
+        stream,
+        clean.data_ptr<float>(),
+        noise.data_ptr<float>(),
+        noise_std,
+        out.data_ptr<float>(),
+        numel);
     hipError_t err = hipGetLastError();
     TORCH_CHECK(err == hipSuccess, "add_noise_kernel launch failed: ", hipGetErrorString(err));
 
