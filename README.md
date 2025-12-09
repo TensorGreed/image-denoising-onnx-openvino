@@ -26,6 +26,8 @@ Minimal setup to train a face denoiser with a HIP-based noise op (tuned for MI30
    export CUDA_HOME=${CUDA_HOME:-$ROCM_HOME}
    export CUDACXX=${CUDACXX:-$ROCM_HOME/bin/hipcc}
    export PATH="$ROCM_HOME/bin:$PATH"
+   # Set arch for MI300X
+   export TORCH_CUDA_ARCH_LIST=${TORCH_CUDA_ARCH_LIST:-gfx942}
    python -m pip install -e hip_addnoise --no-build-isolation
    python -m pip install -e hip_linear --no-build-isolation  # optional, for the hipBLAS linear op
    ```

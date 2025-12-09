@@ -50,6 +50,8 @@ os.environ["CUDA_HOME"] = shim_root
 if os.path.exists(hipcc):
     os.environ["CUDACXX"] = hipcc
     os.environ["NVCC"] = hipcc
+# Default arch for MI300X (gfx942) if not provided
+os.environ.setdefault("TORCH_CUDA_ARCH_LIST", "gfx942")
 os.environ["PATH"] = shim_bin + os.pathsep + os.environ.get("PATH", "")
 
 # Now import torch extension utilities
