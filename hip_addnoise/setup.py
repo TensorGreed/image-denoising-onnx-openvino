@@ -10,6 +10,8 @@ hipcc = os.path.join(rocm_home, "bin", "hipcc")
 shim_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "rocm_nvcc_shim"))
 shim_bin = os.path.join(shim_root, "bin")
 shim_nvcc = os.path.join(shim_bin, "nvcc")
+shim_include = os.path.join(shim_root, "include")
+shim_lib64 = os.path.join(shim_root, "lib64")
 
 os.makedirs(shim_bin, exist_ok=True)
 
@@ -19,6 +21,23 @@ if not os.path.exists(shim_nvcc) and os.path.exists(hipcc):
         f.write("#!/usr/bin/env bash\n\"{}\" \"$@\"\n".format(hipcc))
     st = os.stat(shim_nvcc)
     os.chmod(shim_nvcc, st.st_mode | stat.S_IEXEC)
+
+# Mirror include/lib paths to ROCm so include_paths(cuda=True) resolves.
+if os.path.exists(rocm_home):
+    if not os.path.exists(shim_include):
+        try:
+            os.symlink(os.path.join(rocm_home, "include"), shim_include)
+        except FileExistsError:
+            pass
+    for libdir_name in ("lib64", "lib"):
+        target_lib = os.path.join(rocm_home, libdir_name)
+        if os.path.exists(target_lib):
+            if not os.path.exists(shim_lib64):
+                try:
+                    os.symlink(target_lib, shim_lib64)
+                except FileExistsError:
+                    pass
+            break
 
 # Point CUDA_HOME to the shim so torch's CUDAExtension finds an nvcc executable.
 os.environ["CUDA_HOME"] = shim_root
