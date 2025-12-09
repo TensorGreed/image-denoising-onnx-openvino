@@ -4,7 +4,7 @@ Minimal setup to train a face denoiser with a HIP-based noise op (tuned for MI30
 
 ## Components
 - `hip_addnoise/`: HIP extension to add Gaussian noise on ROCm (fp32).
-- `hip_linear/`: HIP/hipBLAS linear op (optional).
+- `hip_linear/`: HIP/hipBLAS linear op (optional, fp32).
 - `train_face_denoiser.py`: trains a FaceDenoiser autoencoder with identity loss (FaceNet) on LFW; uses HIP noise augmentation.
 - `export_to_openvino.py`: loads a checkpoint, exports ONNX, converts to OpenVINO IR (FP16), optionally builds an OAK-D blob via `blobconverter`.
 - `train_upload_export.sh`: one-shot script to train -> upload to Hugging Face -> export ONNX/IR/(blob).

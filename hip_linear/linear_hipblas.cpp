@@ -1,6 +1,6 @@
 // hip_linear/linear_hipblas.cpp
 #include <torch/extension.h>
-
+#include <ATen/cuda/CUDAContext.h>
 #include <hip/hip_runtime.h>
 #include <hipblas/hipblas.h>
 
@@ -47,7 +47,7 @@ torch::Tensor linear_forward_hipblas(
 
     // hipBLAS handle
     hipblasHandle_t handle;
-    hipblasCreate(&handle);
+    TORCH_CHECK(hipblasCreate(&handle) == HIPBLAS_STATUS_SUCCESS, "hipblasCreate failed");
 
     hipStream_t stream = at::cuda::getCurrentCUDAStream();
     hipblasSetStream(handle, stream);
