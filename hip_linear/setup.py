@@ -25,6 +25,9 @@ os.environ["CUDA_HOME"] = shim_root
 # Point CUDACXX to hipcc directly.
 if os.path.exists(hipcc):
     os.environ["CUDACXX"] = hipcc
+    os.environ["NVCC"] = hipcc
+# Ensure shim bin is on PATH
+os.environ["PATH"] = shim_bin + os.pathsep + os.environ.get("PATH", "")
 
 setup(
     name="hip_linear",
