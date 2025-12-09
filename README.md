@@ -1,12 +1,14 @@
 # image-denoising-onnx-openvino
 
-Minimal setup to train a face denoiser with a HIP-based noise op (tuned for MI300X), then export the trained model to ONNX -> OpenVINO IR -> optional OAK-D blob, and publish checkpoints to Hugging Face.
+Minimal setup to train a face denoiser with a HIP-based noise op (tuned for MI300X), export to ONNX -> OpenVINO IR -> optional OAK-D blob, and publish checkpoints to Hugging Face.
 
 ## Components
 - `hip_addnoise/`: HIP extension to add Gaussian noise on ROCm (supports fp32/fp16/bf16).
+- `hip_linear/`: HIP/hipBLAS linear op (optional).
 - `train_face_denoiser.py`: trains a FaceDenoiser autoencoder with identity loss (FaceNet) on LFW; uses HIP noise augmentation.
 - `export_to_openvino.py`: loads a checkpoint, exports ONNX, converts to OpenVINO IR (FP16), optionally builds an OAK-D blob via `blobconverter`.
 - `train_upload_export.sh`: one-shot script to train -> upload to Hugging Face -> export ONNX/IR/(blob).
+- `oakd_face_label_app.py`: simple host UI to capture from OAK-D, label, and identify faces via embeddings.
 
 ## Quickstart
 1) Install deps (examples):
@@ -18,10 +20,11 @@ Minimal setup to train a face denoiser with a HIP-based noise op (tuned for MI30
    # Python deps
    pip install facenet-pytorch openvino blobconverter huggingface_hub
 
-   # Local HIP extensions
-   python -m pip install -e .
+   # Local HIP extensions (install from subfolders)
+   python -m pip install -e hip_addnoise
+   python -m pip install -e hip_linear   # optional, for the hipBLAS linear op
    ```
-   Ensure ROCm/CUDA stack is installed for MI300X; for OAK-D export, OpenVINO and `blobconverter` must be present.
+   Ensure ROCm stack is installed on MI300X; for OAK-D export, OpenVINO and `blobconverter` must be present.
 
 2) Train (OAK-D-friendly defaults: 96x96 input, slim model):
    ```bash
@@ -50,37 +53,33 @@ Minimal setup to train a face denoiser with a HIP-based noise op (tuned for MI30
    EXPORT_BLOB=true BLOB_SHAVES=6 OPENVINO_VERSION=2022.1.0 \
    bash train_upload_export.sh
    ```
-   - Requires `huggingface-cli` in PATH; uploads latest checkpoint to `HF_REPO` under `checkpoints/`.
+   Requires `huggingface-cli` in PATH; uploads latest checkpoint to `HF_REPO` under `checkpoints/`.
 
 ## Notes for MI300X
 - HIP noise kernel supports fp32/fp16/bf16 and uses 512 threads/block; adjust if benchmarking suggests otherwise.
 - Add backward if you plan to train with learnable noise or need autograd through the op.
 
 ## Notes for OAK-D
-- OAK-D cannot run HIP; keep the noise op in training only. Exported ONNX/IR should be static input shape (B×3×H×W), default 96×96 here.
+- OAK-D cannot run HIP; keep the noise op in training only. Exported ONNX/IR should be static input shape (B x 3 x H x W), default 96 x 96 here.
 - Steps to run on OAK-D:
   1) Export blob: `python export_to_openvino.py --ckpt ./outputs_face/best.pt --output-dir ./exported --image-size 96 --export-blob --blob-shaves 6 --openvino-version 2022.1.0`
-  2) In your DepthAI script, load the blob: `nn.setBlobPath("exported/oakd/face_denoiser.blob")` and feed `3x96x96` RGB inputs.
+  2) In your DepthAI script, load the blob: `nn.setBlobPath("exported/oakd/face_denoiser.blob")` and feed 3x96x96 RGB inputs.
   3) Keep preprocessing consistent with training (resize to 96x96, normalize to [0,1]).
 - Match `--openvino-version` to your DepthAI firmware; regenerate the blob if versions differ.
 
 ## Simple OAK-D UI (capture -> label -> identify)
 - File: `oakd_face_label_app.py`
-- What it does: captures RGB frames from OAK-D, lets you label images (e.g., “John Doe”), and identifies a query image by comparing FaceNet embeddings to labeled gallery.
+- What it does: captures RGB frames from OAK-D, lets you label images (e.g., "John Doe"), and identifies a query image by comparing FaceNet embeddings to labeled gallery.
 - Install extras:
   ```bash
   pip install gradio facenet-pytorch depthai opencv-python torchvision torch --index-url https://download.pytorch.org/whl/rocm6.1
   ```
-  (Adjust the torch index-url as needed for your ROCm/CUDA setup.)
+  Adjust the torch index-url as needed for your ROCm/CUDA setup.
 - Run on a host with the OAK-D connected over USB:
   ```bash
   python oakd_face_label_app.py --capture-dir ./oakd_captures --device cpu
   ```
-  Then open the printed URL (default http://0.0.0.0:7860) to:
-  1) Capture images from OAK-D.
-  2) Select multiple captures and assign a label.
-  3) Upload/choose a query image and get the predicted label (cosine similarity over FaceNet embeddings).
-  Use `--device cuda` if you want embeddings on GPU. If headless, port-forward (e.g., `ssh -L 7860:localhost:7860 user@host`) and open http://localhost:7860.
+  Then open the printed URL (default http://0.0.0.0:7860) to capture, label, and identify. Use `--device cuda` if you want embeddings on GPU. If headless, port-forward (e.g., `ssh -L 7860:localhost:7860 user@host`) and open http://localhost:7860.
 
 Notes:
 - Embedding runs on host (CPU/GPU); not on the OAK-D VPU. You can swap FaceNet for an OpenVINO face-recognition model if desired.
