@@ -90,7 +90,11 @@ class FaceDenoiser(nn.Module):
 # ---------------------------
 
 def get_lfw_dataloaders(data_dir, batch_size, num_workers, image_size=96, noise_std=0.1):
-    """Returns train and val dataloaders for LFWPeople, resized to `image_size`."""
+    """
+    Returns train and val dataloaders for LFWPeople, resized to `image_size`.
+    LFW auto-downloads are disabled upstream; ensure `lfw_funneled` and split files
+    (peopleDevTrain.txt, peopleDevTest.txt or pairs*.txt) exist under `data_dir`.
+    """
 
     transform_clean = transforms.Compose([
         transforms.Resize((image_size, image_size)),
@@ -99,12 +103,14 @@ def get_lfw_dataloaders(data_dir, batch_size, num_workers, image_size=96, noise_
 
     # LFWPeople returns (image, label). We'll add noise in the training loop using hip_addnoise.
 
+    # LFWPeople expects peopleDevTrain/peopleDevTest; if you only have pairs*.txt,
+    # we can still use train/test splits by reusing peopleDevTrain/peopleDevTest naming.
     train_ds = datasets.LFWPeople(
         root=data_dir,
         split="train",
         image_set="funneled",
         transform=transform_clean,
-        download=True,
+        download=False,
     )
 
     val_ds = datasets.LFWPeople(
@@ -112,7 +118,7 @@ def get_lfw_dataloaders(data_dir, batch_size, num_workers, image_size=96, noise_
         split="test",    # use test as val for now
         image_set="funneled",
         transform=transform_clean,
-        download=True,
+        download=False,
     )
 
     train_loader = DataLoader(
@@ -123,6 +129,83 @@ def get_lfw_dataloaders(data_dir, batch_size, num_workers, image_size=96, noise_
         pin_memory=True,
     )
 
+    val_loader = DataLoader(
+        val_ds,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=True,
+    )
+
+    return train_loader, val_loader
+
+
+def get_celeba_dataloaders(data_dir, batch_size, num_workers, image_size=96):
+    """
+    Returns train and val dataloaders for CelebA. Requires manual download to data_dir.
+    """
+    transform_clean = transforms.Compose([
+        transforms.CenterCrop(178),  # CelebA default
+        transforms.Resize((image_size, image_size)),
+        transforms.ToTensor(),
+    ])
+
+    train_ds = datasets.CelebA(
+        root=data_dir,
+        split="train",
+        transform=transform_clean,
+        download=False,
+    )
+
+    val_ds = datasets.CelebA(
+        root=data_dir,
+        split="valid",
+        transform=transform_clean,
+        download=False,
+    )
+
+    train_loader = DataLoader(
+        train_ds,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=num_workers,
+        pin_memory=True,
+    )
+
+    val_loader = DataLoader(
+        val_ds,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=True,
+    )
+
+    return train_loader, val_loader
+
+
+def get_mixed_dataloaders(data_dir, batch_size, num_workers, image_size=96, noise_std=0.1):
+    """
+    Returns combined train/val loaders by mixing LFW and CelebA.
+    Assumes both datasets are present under data_dir.
+    """
+    lfw_train, lfw_val = get_lfw_dataloaders(
+        data_dir, batch_size, num_workers, image_size=image_size, noise_std=noise_std
+    )
+    celeba_train, celeba_val = get_celeba_dataloaders(
+        data_dir, batch_size, num_workers, image_size=image_size
+    )
+
+    # Combine datasets with concatenation; use weighted batch sampling implicitly via concatenation.
+    train_ds = torch.utils.data.ConcatDataset([lfw_train.dataset, celeba_train.dataset])
+    val_ds = torch.utils.data.ConcatDataset([lfw_val.dataset, celeba_val.dataset])
+
+    train_loader = DataLoader(
+        train_ds,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=num_workers,
+        pin_memory=True,
+    )
     val_loader = DataLoader(
         val_ds,
         batch_size=batch_size,
@@ -234,6 +317,8 @@ def parse_args():
 
     p.add_argument("--data-dir", type=str, default="./data_lfw",
                    help="Where LFW will be downloaded")
+    p.add_argument("--dataset", type=str, default="lfw", choices=["lfw", "celeba", "both"],
+                   help="Which dataset to use")
     p.add_argument("--batch-size", type=int, default=16)
     p.add_argument("--epochs", type=int, default=5)
     p.add_argument("--lr", type=float, default=1e-4)
@@ -263,10 +348,23 @@ def main():
     print("==========================================")
 
     # Data
-    train_loader, val_loader = get_lfw_dataloaders(
-        args.data_dir, args.batch_size, args.num_workers,
-        image_size=args.image_size, noise_std=args.noise_std  # noise_std passed to train/eval, not here
-    )
+    if args.dataset == "lfw":
+        train_loader, val_loader = get_lfw_dataloaders(
+            args.data_dir, args.batch_size, args.num_workers,
+            image_size=args.image_size, noise_std=args.noise_std  # noise_std passed to train/eval, not here
+        )
+    elif args.dataset == "celeba":
+        train_loader, val_loader = get_celeba_dataloaders(
+            args.data_dir, args.batch_size, args.num_workers,
+            image_size=args.image_size
+        )
+    elif args.dataset == "both":
+        train_loader, val_loader = get_mixed_dataloaders(
+            args.data_dir, args.batch_size, args.num_workers,
+            image_size=args.image_size, noise_std=args.noise_std
+        )
+    else:
+        raise ValueError(f"Unsupported dataset: {args.dataset}")
 
     # Models
     model = FaceDenoiser(latent_dim=args.latent_dim, image_size=args.image_size).to(device)

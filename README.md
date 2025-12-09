@@ -62,6 +62,11 @@ Minimal setup to train a face denoiser with a HIP-based noise op (tuned for MI30
    ```
    Requires `huggingface-cli` in PATH; uploads latest checkpoint to `HF_REPO` under `checkpoints/`.
 
+## Dataset note (LFW and CelebA)
+- LFW: TorchVision no longer auto-downloads LFWPeople. Download and extract the “lfw-funneled” archive plus split files (peopleDevTrain.txt / peopleDevTest.txt). If you have the Kaggle LFW archive, extract `lfw-funneled.tgz` into `--data-dir` and place the split files there.
+- CelebA: You can swap to CelebA (faces with attributes) if you prefer a larger dataset. Use `torchvision.datasets.CelebA` (requires manual download to the `--data-dir` path), and adjust transforms to your target resolution (e.g., 96x96).
+- Both: Set `--dataset both` to concatenate LFW and CelebA (requires both present under `--data-dir`).
+
 ## Notes for MI300X
 - HIP noise kernel supports fp32 and uses 512 threads/block; adjust if benchmarking suggests otherwise.
 - Add backward if you plan to train with learnable noise or need autograd through the op.
