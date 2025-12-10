@@ -62,7 +62,7 @@ setup(
     ext_modules=[
         CUDAExtension(
             name="hip_linear_ext",
-            sources=["linear_hipblas.cpp"],
+            sources=["linear_hipblas.cu"],
             extra_compile_args={
                 "cxx": ["-O3"],
                 "nvcc": []  # On ROCm this is routed to hipcc

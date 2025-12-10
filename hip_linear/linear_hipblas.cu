@@ -1,4 +1,4 @@
-// hip_linear/linear_hipblas.cpp
+// hip_linear/linear_hipblas.cu
 #include <torch/extension.h>
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/hip/HIPGuard.h>
