@@ -51,7 +51,11 @@ class HipLinear(nn.Module):
             bias = self.bias if self.bias is not None else torch.zeros(
                 self.out_features, device=x.device, dtype=x.dtype
             )
-            return hip_linear.linear(x, self.weight, bias)
+            try:
+                return hip_linear.linear(x, self.weight, bias)
+            except RuntimeError:
+                # Fallback to PyTorch linear if HIP path fails
+                return torch.nn.functional.linear(x, self.weight, self.bias)
         return torch.nn.functional.linear(x, self.weight, self.bias)
 
 
