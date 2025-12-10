@@ -126,9 +126,8 @@ class FaceDenoiser(nn.Module):
 
 def get_lfw_dataloaders(data_dir, batch_size, num_workers, image_size=96, noise_std=0.1):
     """
-    Returns train and val dataloaders for LFWPeople, resized to `image_size`.
-    LFW auto-downloads are disabled upstream; ensure `lfw_funneled` and split files
-    (peopleDevTrain.txt, peopleDevTest.txt or pairs*.txt) exist under `data_dir`.
+    Returns train and val dataloaders for LFW, resized to `image_size`.
+    Uses ImageFolder over `data_dir/lfw_funneled` to avoid download/integrity checks.
     """
 
     transform_clean = transforms.Compose([
@@ -138,22 +137,15 @@ def get_lfw_dataloaders(data_dir, batch_size, num_workers, image_size=96, noise_
 
     # LFWPeople returns (image, label). We'll add noise in the training loop using hip_addnoise.
 
-    # LFWPeople expects peopleDevTrain/peopleDevTest; if you only have pairs*.txt,
-    # we can still use train/test splits by reusing peopleDevTrain/peopleDevTest naming.
-    train_ds = datasets.LFWPeople(
-        root=data_dir,
-        split="train",
-        image_set="funneled",
-        transform=transform_clean,
-        download=False,
-    )
+    lfw_root = os.path.join(data_dir, "lfw_funneled")
+    full_ds = datasets.ImageFolder(root=lfw_root, transform=transform_clean)
 
-    val_ds = datasets.LFWPeople(
-        root=data_dir,
-        split="test",    # use test as val for now
-        image_set="funneled",
-        transform=transform_clean,
-        download=False,
+    val_len = max(1, int(0.1 * len(full_ds)))
+    train_len = len(full_ds) - val_len
+    train_ds, val_ds = torch.utils.data.random_split(
+        full_ds,
+        [train_len, val_len],
+        generator=torch.Generator().manual_seed(42),
     )
 
     train_loader = DataLoader(
