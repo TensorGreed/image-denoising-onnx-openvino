@@ -19,11 +19,7 @@ torch::Tensor linear_forward_hipblas(
     TORCH_CHECK(w.is_cuda(), "w must be on CUDA/ROCm device");
     TORCH_CHECK(b.is_cuda(), "b must be on CUDA/ROCm device");
 
-    TORCH_CHECK(
-        x.scalar_type() == torch::kFloat ||
-            x.scalar_type() == torch::kHalf ||
-            x.scalar_type() == torch::kBFloat16,
-        "x must be float32/float16/bfloat16");
+    TORCH_CHECK(x.scalar_type() == torch::kFloat, "x must be float32");
     TORCH_CHECK(x.scalar_type() == w.scalar_type(), "x and w must share dtype");
     TORCH_CHECK(x.scalar_type() == b.scalar_type(), "x and b must share dtype");
 
@@ -68,50 +64,19 @@ torch::Tensor linear_forward_hipblas(
     hipStream_t stream = at::cuda::getCurrentCUDAStream();
     hipblasSetStream(handle, stream);
 
-    auto launch_float = [&]() {
-        const float alpha = 1.0f;
-        const float beta = 0.0f;
-        hipblasStatus_t stat = hipblasSgemm(
-            handle,
-            opA,
-            opB,
-            m, n, k,
-            &alpha,
-            w.data_ptr<float>(), lda,
-            x.data_ptr<float>(), ldb,
-            &beta,
-            yT.data_ptr<float>(), ldc);
-        TORCH_CHECK(stat == HIPBLAS_STATUS_SUCCESS, "hipblasSgemm failed");
-    };
-
-    auto launch_ex = [&](hipblasDatatype_t dtype) {
-        const float alpha = 1.0f;
-        const float beta = 0.0f;
-        hipblasStatus_t stat = hipblasGemmEx(
-            handle,
-            opA,
-            opB,
-            m, n, k,
-            &alpha,
-            w.data_ptr(), dtype, lda,
-            x.data_ptr(), dtype, ldb,
-            &beta,
-            yT.data_ptr(), dtype, ldc,
-            yT.data_ptr(), dtype, ldc,
-            HIPBLAS_COMPUTE_32F,
-            HIPBLAS_GEMM_DEFAULT);
-        TORCH_CHECK(stat == HIPBLAS_STATUS_SUCCESS, "hipblasGemmEx failed");
-    };
-
-    if (x.scalar_type() == torch::kFloat) {
-        launch_float();
-    } else if (x.scalar_type() == torch::kHalf) {
-        launch_ex(HIPBLAS_R_16F);
-    } else if (x.scalar_type() == torch::kBFloat16) {
-        launch_ex(HIPBLAS_R_16B);
-    } else {
-        TORCH_CHECK(false, "Unsupported dtype for hip_linear");
-    }
+    const float alpha = 1.0f;
+    const float beta = 0.0f;
+    hipblasStatus_t stat = hipblasSgemm(
+        handle,
+        opA,
+        opB,
+        m, n, k,
+        &alpha,
+        w.data_ptr<float>(), lda,
+        x.data_ptr<float>(), ldb,
+        &beta,
+        yT.data_ptr<float>(), ldc);
+    TORCH_CHECK(stat == HIPBLAS_STATUS_SUCCESS, "hipblasSgemm failed");
 
     hipblasDestroy(handle);
 
