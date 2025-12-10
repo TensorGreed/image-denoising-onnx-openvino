@@ -84,20 +84,21 @@ torch::Tensor linear_forward_hipblas(
         TORCH_CHECK(stat == HIPBLAS_STATUS_SUCCESS, "hipblasSgemm failed");
     };
 
-    auto launch_ex = [&](hipblasDatatype_t dtype, hipblasComputeType_t compute) {
-        const float alpha_f = 1.0f;
-        const float beta_f = 0.0f;
+    auto launch_ex = [&](hipblasDatatype_t dtype) {
+        const float alpha = 1.0f;
+        const float beta = 0.0f;
         hipblasStatus_t stat = hipblasGemmEx(
             handle,
             opA,
             opB,
             m, n, k,
-            &alpha_f,
+            &alpha,
             w.data_ptr(), dtype, lda,
             x.data_ptr(), dtype, ldb,
-            &beta_f,
+            &beta,
             yT.data_ptr(), dtype, ldc,
-            compute,
+            yT.data_ptr(), dtype, ldc,
+            HIPBLAS_COMPUTE_32F,
             HIPBLAS_GEMM_DEFAULT);
         TORCH_CHECK(stat == HIPBLAS_STATUS_SUCCESS, "hipblasGemmEx failed");
     };
@@ -105,9 +106,9 @@ torch::Tensor linear_forward_hipblas(
     if (x.scalar_type() == torch::kFloat) {
         launch_float();
     } else if (x.scalar_type() == torch::kHalf) {
-        launch_ex(HIPBLAS_R_16F, HIPBLAS_COMPUTE_32F);
+        launch_ex(HIPBLAS_R_16F);
     } else if (x.scalar_type() == torch::kBFloat16) {
-        launch_ex(HIPBLAS_R_16B, HIPBLAS_COMPUTE_32F);
+        launch_ex(HIPBLAS_R_16B);
     } else {
         TORCH_CHECK(false, "Unsupported dtype for hip_linear");
     }
