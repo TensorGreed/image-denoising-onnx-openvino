@@ -10,8 +10,10 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 
 from torchvision import datasets, transforms
+import math
 
 import hip_addnoise
+import hip_linear
 from facenet_pytorch import InceptionResnetV1
 
 
@@ -20,8 +22,41 @@ from facenet_pytorch import InceptionResnetV1
 # OAK-D friendly: smaller channels/resolution defaults (96x96), lightweight decoder.
 # ---------------------------
 
+
+class HipLinear(nn.Module):
+    """hipBLAS-backed linear with CPU fallback."""
+
+    def __init__(self, in_features: int, out_features: int, bias: bool = True, use_hip: bool = True):
+        super().__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.use_hip = use_hip
+
+        self.weight = nn.Parameter(torch.empty(out_features, in_features))
+        if bias:
+            self.bias = nn.Parameter(torch.empty(out_features))
+        else:
+            self.register_parameter("bias", None)
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        nn.init.kaiming_uniform_(self.weight, a=math.sqrt(5))
+        if self.bias is not None:
+            fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.weight)
+            bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0
+            nn.init.uniform_(self.bias, -bound, bound)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.use_hip and x.is_cuda:
+            bias = self.bias if self.bias is not None else torch.zeros(
+                self.out_features, device=x.device, dtype=x.dtype
+            )
+            return hip_linear.linear(x, self.weight, bias)
+        return torch.nn.functional.linear(x, self.weight, self.bias)
+
+
 class FaceDenoiser(nn.Module):
-    def __init__(self, latent_dim: int = 256, image_size: int = 96):
+    def __init__(self, latent_dim: int = 256, image_size: int = 96, use_hip_linear: bool = True):
         super().__init__()
         if image_size % 16 != 0:
             raise ValueError("image_size must be divisible by 16 for the current encoder/decoder strides.")
@@ -46,8 +81,8 @@ class FaceDenoiser(nn.Module):
 
         # Latent bottleneck MLP (this is where hip_linear could be used in inference)
         self.flatten = nn.Flatten()
-        self.fc_enc = nn.Linear(enc_feat_dim, latent_dim)
-        self.fc_dec = nn.Linear(latent_dim, enc_feat_dim)
+        self.fc_enc = HipLinear(enc_feat_dim, latent_dim, use_hip=use_hip_linear)
+        self.fc_dec = HipLinear(latent_dim, enc_feat_dim, use_hip=use_hip_linear)
 
         # Decoder: mirror-ish upsampling
         self.decoder = nn.Sequential(
@@ -323,6 +358,11 @@ def parse_args():
                    help="Where LFW will be downloaded")
     p.add_argument("--dataset", type=str, default="lfw", choices=["lfw", "celeba", "both"],
                    help="Which dataset to use")
+    p.add_argument("--use-hip-linear", dest="use_hip_linear", action="store_true",
+                   help="Use hipBLAS linear for encoder/decoder MLP")
+    p.add_argument("--no-hip-linear", dest="use_hip_linear", action="store_false",
+                   help="Disable hipBLAS linear for encoder/decoder MLP")
+    p.set_defaults(use_hip_linear=True)
     p.add_argument("--batch-size", type=int, default=16)
     p.add_argument("--epochs", type=int, default=5)
     p.add_argument("--lr", type=float, default=1e-4)
@@ -371,7 +411,11 @@ def main():
         raise ValueError(f"Unsupported dataset: {args.dataset}")
 
     # Models
-    model = FaceDenoiser(latent_dim=args.latent_dim, image_size=args.image_size).to(device)
+    model = FaceDenoiser(
+        latent_dim=args.latent_dim,
+        image_size=args.image_size,
+        use_hip_linear=args.use_hip_linear
+    ).to(device)
     facenet = build_facenet(device)
 
     print("Denoiser params:",

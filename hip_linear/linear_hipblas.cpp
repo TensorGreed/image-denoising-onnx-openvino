@@ -1,6 +1,7 @@
 // hip_linear/linear_hipblas.cpp
 #include <torch/extension.h>
 #include <ATen/cuda/CUDAContext.h>
+#include <c10/hip/HIPGuard.h>
 #include <hip/hip_runtime.h>
 #include <hipblas/hipblas.h>
 
@@ -18,9 +19,13 @@ torch::Tensor linear_forward_hipblas(
     TORCH_CHECK(w.is_cuda(), "w must be on CUDA/ROCm device");
     TORCH_CHECK(b.is_cuda(), "b must be on CUDA/ROCm device");
 
-    TORCH_CHECK(x.scalar_type() == torch::kFloat, "x must be float32");
-    TORCH_CHECK(w.scalar_type() == torch::kFloat, "w must be float32");
-    TORCH_CHECK(b.scalar_type() == torch::kFloat, "b must be float32");
+    TORCH_CHECK(
+        x.scalar_type() == torch::kFloat ||
+            x.scalar_type() == torch::kHalf ||
+            x.scalar_type() == torch::kBFloat16,
+        "x must be float32/float16/bfloat16");
+    TORCH_CHECK(x.scalar_type() == w.scalar_type(), "x and w must share dtype");
+    TORCH_CHECK(x.scalar_type() == b.scalar_type(), "x and b must share dtype");
 
     TORCH_CHECK(x.dim() == 2, "x must be 2D [B, K]");
     TORCH_CHECK(w.dim() == 2, "w must be 2D [N, K]");
@@ -42,29 +47,6 @@ torch::Tensor linear_forward_hipblas(
     b = b.contiguous();
     y = y.contiguous();
 
-    const float alpha = 1.0f;
-    const float beta  = 0.0f;
-
-    // hipBLAS handle
-    hipblasHandle_t handle;
-    TORCH_CHECK(hipblasCreate(&handle) == HIPBLAS_STATUS_SUCCESS, "hipblasCreate failed");
-
-    hipStream_t stream = at::cuda::getCurrentCUDAStream();
-    hipblasSetStream(handle, stream);
-
-    // We want: y = x * W^T
-    // Shapes: x [B,K], W [N,K], y [B,N]
-    // In BLAS (column-major) terms, we can compute:
-    //   Y^T [N,B] = W [N,K] * X^T [K,B]
-    //
-    // So:
-    //   C = A * B
-    //   A = W [N,K] (no transpose)
-    //   B = X^T [K,B] (transpose of x)
-    //   C = Y^T [N,B]
-    //
-    // That is GEMM: (N x K) * (K x B) = (N x B)
-
     const int m = static_cast<int>(N);  // rows of A (W)
     const int n = static_cast<int>(B);  // cols of B (X^T)
     const int k = static_cast<int>(K);  // shared dim
@@ -79,19 +61,56 @@ torch::Tensor linear_forward_hipblas(
     hipblasOperation_t opA = HIPBLAS_OP_N;  // W as-is
     hipblasOperation_t opB = HIPBLAS_OP_T;  // X^T
 
-    hipblasStatus_t stat = hipblasSgemm(
-        handle,
-        opA,
-        opB,
-        m, n, k,
-        &alpha,
-        w.data_ptr<float>(), lda,
-        x.data_ptr<float>(), ldb,
-        &beta,
-        yT.data_ptr<float>(), ldc
-    );
+    hipblasHandle_t handle;
+    TORCH_CHECK(hipblasCreate(&handle) == HIPBLAS_STATUS_SUCCESS, "hipblasCreate failed");
 
-    TORCH_CHECK(stat == HIPBLAS_STATUS_SUCCESS, "hipblasSgemm failed");
+    c10::hip::HIPGuard guard{x.get_device()};
+    hipStream_t stream = at::cuda::getCurrentCUDAStream();
+    hipblasSetStream(handle, stream);
+
+    auto launch_float = [&]() {
+        const float alpha = 1.0f;
+        const float beta = 0.0f;
+        hipblasStatus_t stat = hipblasSgemm(
+            handle,
+            opA,
+            opB,
+            m, n, k,
+            &alpha,
+            w.data_ptr<float>(), lda,
+            x.data_ptr<float>(), ldb,
+            &beta,
+            yT.data_ptr<float>(), ldc);
+        TORCH_CHECK(stat == HIPBLAS_STATUS_SUCCESS, "hipblasSgemm failed");
+    };
+
+    auto launch_ex = [&](hipblasDatatype_t dtype, hipblasComputeType_t compute) {
+        const float alpha_f = 1.0f;
+        const float beta_f = 0.0f;
+        hipblasStatus_t stat = hipblasGemmEx(
+            handle,
+            opA,
+            opB,
+            m, n, k,
+            &alpha_f,
+            w.data_ptr(), dtype, lda,
+            x.data_ptr(), dtype, ldb,
+            &beta_f,
+            yT.data_ptr(), dtype, ldc,
+            compute,
+            HIPBLAS_GEMM_DEFAULT);
+        TORCH_CHECK(stat == HIPBLAS_STATUS_SUCCESS, "hipblasGemmEx failed");
+    };
+
+    if (x.scalar_type() == torch::kFloat) {
+        launch_float();
+    } else if (x.scalar_type() == torch::kHalf) {
+        launch_ex(HIPBLAS_R_16F, HIPBLAS_COMPUTE_32F);
+    } else if (x.scalar_type() == torch::kBFloat16) {
+        launch_ex(HIPBLAS_R_16B, HIPBLAS_COMPUTE_32F);
+    } else {
+        TORCH_CHECK(false, "Unsupported dtype for hip_linear");
+    }
 
     hipblasDestroy(handle);
 
