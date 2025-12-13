@@ -13,11 +13,10 @@ Usage:
 
 import argparse
 import os
+import subprocess
 from pathlib import Path
 
 from huggingface_hub import snapshot_download
-
-from export_to_openvino import main as export_main
 
 
 def parse_args():
@@ -55,8 +54,9 @@ def main():
     if not ckpt_path.exists():
         raise SystemExit(f"Checkpoint not found after download: {ckpt_path}")
 
-    # Build args for export_to_openvino main
+    # Build args for export_to_openvino CLI and invoke via subprocess
     export_args = [
+        "python", "export_to_openvino.py",
         "--ckpt", ckpt_path.as_posix(),
         "--output-dir", args.output_dir,
         "--image-size", str(args.image_size),
@@ -70,8 +70,7 @@ def main():
             "--openvino-version", args.openvino_version,
         ])
 
-    # Invoke export
-    export_main(export_args)
+    subprocess.run(export_args, check=True)
 
 
 if __name__ == "__main__":
