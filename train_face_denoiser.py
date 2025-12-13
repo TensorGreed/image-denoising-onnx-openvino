@@ -12,7 +12,12 @@ from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 import math
 
-import hip_addnoise
+try:
+    import hip_addnoise  # HIP noise op (ROCm)
+    _HIP_ADDNOISE_AVAILABLE = True
+except ImportError:
+    hip_addnoise = None
+    _HIP_ADDNOISE_AVAILABLE = False
 import hip_linear
 from facenet_pytorch import InceptionResnetV1
 
@@ -269,6 +274,14 @@ def build_facenet(device):
     return facenet
 
 
+def add_noise_with_fallback(clean: torch.Tensor, noise_std: float):
+    """Use HIP noise op if available on GPU; fallback to CPU/PyTorch noise."""
+    if _HIP_ADDNOISE_AVAILABLE and clean.is_cuda:
+        return hip_addnoise.add_noise(clean, noise_std=noise_std)
+    noise = torch.randn_like(clean)
+    return clean + noise_std * noise
+
+
 # ---------------------------
 # Train / Eval epoch
 # ---------------------------
@@ -297,8 +310,8 @@ def train_epoch(model, facenet, loader, optimizer, device, noise_std, lambda_id)
     for clean, _ in loader:
         clean = clean.to(device, non_blocking=True)  # [B,3,H,W]
 
-        # Add noise with HIP kernel (same pattern as before)
-        noisy = hip_addnoise.add_noise(clean, noise_std=noise_std)
+        # Add noise with HIP if available, else CPU fallback
+        noisy = add_noise_with_fallback(clean, noise_std=noise_std)
 
         optimizer.zero_grad()
 
@@ -329,7 +342,7 @@ def eval_epoch(model, facenet, loader, device, noise_std, lambda_id):
 
     for clean, _ in loader:
         clean = clean.to(device, non_blocking=True)
-        noisy = hip_addnoise.add_noise(clean, noise_std=noise_std)
+        noisy = add_noise_with_fallback(clean, noise_std=noise_std)
         denoised = model(noisy)
 
         pixel_loss = pixel_criterion(denoised, clean)
