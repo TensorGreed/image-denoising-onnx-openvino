@@ -18,7 +18,14 @@ try:
 except ImportError:
     hip_addnoise = None
     _HIP_ADDNOISE_AVAILABLE = False
-import hip_linear
+
+try:
+    import hip_linear  # HIP linear op (ROCm)
+    _HIP_LINEAR_AVAILABLE = True
+except ImportError:
+    hip_linear = None
+    _HIP_LINEAR_AVAILABLE = False
+
 from facenet_pytorch import InceptionResnetV1
 
 
@@ -52,7 +59,7 @@ class HipLinear(nn.Module):
             nn.init.uniform_(self.bias, -bound, bound)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        if self.use_hip and x.is_cuda:
+        if self.use_hip and _HIP_LINEAR_AVAILABLE and x.is_cuda:
             bias = self.bias if self.bias is not None else torch.zeros(
                 self.out_features, device=x.device, dtype=x.dtype
             )
