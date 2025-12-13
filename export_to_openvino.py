@@ -81,9 +81,18 @@ def export_oakd_blob(
         shaves=shaves,
         version=openvino_version,
         output_dir=blob_path.parent.as_posix(),
-        output_blob_name=blob_path.name,
+        # Some versions of blobconverter don't support output_blob_name
     )
-    return Path(result_path)
+    # blobconverter returns the output path; rename/move if requested name differs
+    result_path = Path(result_path)
+    if result_path.name != blob_path.name:
+        target = blob_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists():
+            target.unlink()
+        result_path.rename(target)
+        result_path = target
+    return result_path
 
 
 def parse_args():
