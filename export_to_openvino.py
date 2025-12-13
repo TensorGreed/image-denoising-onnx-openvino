@@ -50,7 +50,9 @@ def export_openvino_ir(
 
     ir_dir.mkdir(parents=True, exist_ok=True)
     model_ir = mo.convert_model(onnx_path.as_posix(), compress_to_fp16=compress_to_fp16)
-    xml_path = ir_dir / (onnx_path.stem + (".fp16.xml" if compress_to_fp16 else ".xml"))
+    # Avoid extra dots in filename (blobconverter rejects them)
+    suffix = "_fp16" if compress_to_fp16 else ""
+    xml_path = ir_dir / f"{onnx_path.stem}{suffix}.xml"
     bin_path = xml_path.with_suffix(".bin")
     serialize(model_ir, xml_path.as_posix(), bin_path.as_posix())
     return xml_path, bin_path
